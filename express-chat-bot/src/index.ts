@@ -10,8 +10,8 @@ app.get("/", (req, res) => {
   res.send("Hello World");
 });
 
-app.post("/api/v1/webhook", (request: Request, response: Response) => {
-    eventRouter(request, response);
+app.post("/api/v1/webhook", async (request: Request, response: Response) => {
+  await eventRouter(request, response);
 });
 // app.post("/api/v1/webhook/:event", webhookHandler);
 

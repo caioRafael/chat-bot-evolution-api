@@ -1,50 +1,42 @@
 import type { Request, Response } from "express";
 import type { MessageReceivedData } from "../interface/message-data-type.js";
+import { EvolutionMessageSender } from "../adapters/evolution-message-sender.js";
+import { TenantConfigResolver } from "../config/tenant-config-resolver.js";
+import { BotDispatcher, type BotHandler } from "../bot/bot-dispatcher.js";
+import { createDefaultBotHandlers } from "../bot/default-handlers.js";
+import type { MessageSender } from "../ports/message-sender.js";
+import { mapWebhookToInbound } from "../inbound/map-webhook-to-inbound.js";
 
 export class MessagesUpsertService {
-    async execute(request: Request, response: Response) {
-        const body = request.body as MessageReceivedData;
+  private readonly messageSender: MessageSender;
+  private readonly botDispatcher: BotDispatcher;
 
-        const message = body.data.message.conversation;
-        const instance = body.instance;
-        const number = body.sender;
-        const mentionedDigits = number.split("@")[0] ?? number;
+  constructor(
+    tenantConfigResolver = new TenantConfigResolver(),
+    messageSender: MessageSender = new EvolutionMessageSender(tenantConfigResolver),
+    botHandlers: BotHandler[] = createDefaultBotHandlers(),
+  ) {
+    this.messageSender = messageSender;
+    this.botDispatcher = new BotDispatcher(botHandlers);
+  }
 
-        if (message === "Iai fera") {
-            const sendTextPayload: Record<string, unknown> = {
-                number,
-                text: "E aí! Qual linguagem de programação você prefere? (responde em texto mesmo)",
-                delay: 123,
-                linkPreview: true,
-                mentionsEveryOne: true,
-                mentioned: [mentionedDigits],
-            };
+  async execute(request: Request, response: Response) {
+    const body = request.body as MessageReceivedData;
+    const inbound = mapWebhookToInbound(body);
 
-            const quotedId = body.data.key?.id;
-            if (quotedId) {
-                sendTextPayload.quoted = {
-                    key: { id: quotedId },
-                    message: { conversation: message },
-                };
-            }
-
-            fetch(`http://localhost:8080/message/sendText/${instance}`, {
-                method: "POST",
-                body: JSON.stringify(sendTextPayload),
-                headers: {
-                    "Content-Type": "application/json",
-                    apikey: "e478c34e-d979-42d0-b2ee-7cb003e9a614",
-                },
-            })
-                .then((res) => res.json())
-                .then((data) => {
-                    console.log(`[MESSAGES UPSERT SERVICE] Resposta da API: \n${JSON.stringify(data, null, 2)}`);
-                })
-                .catch((error) => {
-                    console.error(`[MESSAGES UPSERT SERVICE] Erro ao enviar mensagem: \n${error}`);
-                });
-        }
-        console.log(`[MESSAGES UPSERT SERVICE] Evento recebido: \n${JSON.stringify(body, null, 2)}`);
-        return response.status(200).json({ message: "Messages upserted successfully" });
+    if (!inbound) {
+      console.log("[MESSAGES UPSERT SERVICE] Payload inválido ou sem instance/remoteJid.");
+      return response.status(200).json({ ok: true, ignored: true, reason: "invalid_payload" });
     }
+
+    console.log(`[MESSAGES UPSERT SERVICE] Message: \n${JSON.stringify(inbound.text, null, 2)}`);
+
+    await this.botDispatcher.dispatch({
+      inbound,
+      messageSender: this.messageSender,
+    });
+
+    console.log(`[MESSAGES UPSERT SERVICE] Evento recebido: \n${JSON.stringify(body, null, 2)}`);
+    return response.status(200).json({ message: "Messages upserted successfully" });
+  }
 }

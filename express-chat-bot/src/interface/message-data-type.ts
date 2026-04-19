@@ -1,14 +1,16 @@
 export interface MessageReceivedData {
     event: string;
     instance: string;
-    data: {
+    data?: {
         key?: {
             id?: string;
             remoteJid?: string;
             fromMe?: boolean;
+            participant?: string;
         };
-        message: {
-            conversation: string;
+        pushName?: string;
+        message?: {
+            conversation?: string;
         };
         messageType: string;
         messageTimestamp: number;
